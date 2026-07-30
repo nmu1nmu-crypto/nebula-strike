@@ -1,0 +1,29 @@
+{
+  "appId": "com.naebulastrike.app",
+  "appName": "Nebula Strike",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "automatic",
+    "scheme": "NebulaStrike",
+    "scrollEnabled": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "launchAutoHide": true,
+      "backgroundColor": "#000510",
+      "androidSplashResourceName": "splash"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#000510"
+    },
+    "ScreenOrientation": {
+      "orientation": "portrait"
+    },
+    "Haptics": {}
+  }
+}

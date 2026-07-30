@@ -1,0 +1,22 @@
+{
+  "name": "nebula-strike",
+  "version": "1.0.0",
+  "description": "Nebula Strike — a modern AAA-quality Galaga-style shoot-em-up",
+  "scripts": {
+    "build": "echo 'No build needed — static files'",
+    "cap:sync": "npx cap sync",
+    "cap:open:ios": "npx cap open ios",
+    "cap:add:ios": "npx cap add ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/ios": "^6.2.1",
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0",
+    "@capacitor/screen-orientation": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.1"
+  }
+}
