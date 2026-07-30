@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>GALAXY REBORN</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/three.min.js"></script>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        <div id="hud">
+            <div id="hud-top">
+                <div class="hud-item"><span class="hud-label">SCORE</span><span id="score" class="hud-value">000000</span></div>
+                <div class="hud-center">
+                    <div id="wave-indicator"><span class="hud-label">WAVE</span><span id="wave" class="hud-value">1</span></div>
+                    <div id="level-name"></div>
+                </div>
+                <div class="hud-item right">
+                    <span class="hud-label">LIVES</span><span id="lives" class="hud-value">♥♥♥</span>
+                    <button id="sound-toggle" class="sound-toggle" title="Toggle Sound (M)">🔊</button>
+                </div>
+            </div>
+            <div id="combo-meter">
+                <div id="combo-bar"></div>
+                <span id="combo-text">COMBO x1</span>
+            </div>
+        </div>
+        <div id="screen-effects"></div>
+        <div id="start-screen" class="screen">
+            <div class="title-container">
+                <h1 class="game-title">GALAXY</h1>
+                <h2 class="game-subtitle">REBORN</h2>
+                <p class="tagline">Defend the galaxy. Become legend.</p>
+                <button id="start-btn" class="btn-primary">START GAME</button>
+                <div class="controls-hint">
+                    <div class="control-row"><span class="key">←</span><span class="key">→</span> Move</div>
+                    <div class="control-row"><span class="key">SPACE</span> Fire</div>
+                    <div class="control-row"><span class="key">Z</span> Special Weapon</div>
+                    <div class="control-row"><span class="key">M</span> Sound On/Off</div>
+                    <div class="control-row"><span class="key">P</span> Pause</div>
+                </div>
+            </div>
+        </div>
+        <div id="game-over-screen" class="screen hidden">
+            <div class="title-container">
+                <h1 class="game-title game-over-title">GAME OVER</h1>
+                <div class="final-stats">
+                    <div>FINAL SCORE: <span id="final-score">0</span></div>
+                    <div>WAVES SURVIVED: <span id="final-wave">0</span></div>
+                    <div>MAX COMBO: <span id="final-combo">0</span></div>
+                </div>
+                <button id="restart-btn" class="btn-primary">PLAY AGAIN</button>
+            </div>
+        </div>
+        <div id="wave-transition" class="hidden">
+            <div class="wave-text">WAVE <span id="next-wave">2</span></div>
+            <div class="wave-subtext">INCOMING</div>
+        </div>
+        <div id="pause-screen" class="screen hidden">
+            <div class="title-container">
+                <h1 class="pause-title">PAUSED</h1>
+                <button id="resume-btn" class="btn-primary">RESUME</button>
+            </div>
+        </div>
+    </div>
+    <script src="js/Game.js"></script>
+    <script src="js/Input.js"></script>
+    <script src="js/Player.js"></script>
+    <script src="js/Enemy.js"></script>
+    <script src="js/Bullet.js"></script>
+    <script src="js/ParticleSystem.js"></script>
+    <script src="js/Background.js"></script>
+    <script src="js/AudioEngine.js"></script>
+    <script src="js/Effects.js"></script>
+    <script src="js/PowerUp.js"></script>
+    <script src="js/FormationManager.js"></script>
+    <script src="js/UI.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            try {
+                window.game = new Game();
+                window.game.start();
+            } catch(e) {
+                console.error('Game init error:', e.message, e.stack);
+                document.body.innerHTML += '<pre style="color:red;position:fixed;top:0;left:0;z-index:9999;padding:20px;background:rgba(0,0,0,0.8)">' + e.message + '\n' + e.stack + '</pre>';
+            }
+        });
+    </script>
+</body>
+</html>
