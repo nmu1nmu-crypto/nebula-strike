@@ -13,6 +13,9 @@
  *      MULTI   — magenta,   weapon level +1 (capped at 4)
  *      LIFE    — red heart, extra life
  *      BOMB    — orange,    screen-clearing bomb (onCollect callback)
+ *      AMMO    — blue,      restores 50 ammo
+ *      COIN    — gold,      adds 10 to player.coinCount
+ *      MAGNET  — pink,      attracts pickups for 10 s
  *
  *  Each power-up is a THREE.Sprite (icon) layered over a larger additive
  *  THREE.Sprite aura.  Both are pooled.  A 10-second lifetime with a blink
@@ -66,6 +69,12 @@
   // Timed effect durations (seconds).
   var SHIELD_DURATION = 10;
   var RAPID_DURATION  = 8;
+  var MAGNET_DURATION = 10;
+
+  // AMMO power-up: how much ammo to restore on pickup.
+  var AMMO_RESTORE = 50;
+  // COIN power-up: how many coins to add to the player's coin counter.
+  var COIN_AMOUNT  = 10;
 
   // Power-up type registry.  `color` is the aura colour (hex), `tex` is the
   // texture filename (null => procedural), `weight` biases random selection.
@@ -74,9 +83,12 @@
     RAPID:  { id: 'RAPID',  color: 0xffe000, tex: 'powerup_rapid.png',  weight: 3, label: 'RAPID FIRE' },
     MULTI:  { id: 'MULTI',  color: 0xff44dd, tex: 'powerup_multi.png',  weight: 3, label: 'WEAPON UP' },
     LIFE:   { id: 'LIFE',   color: 0xff3050, tex: null,                  weight: 1, label: 'EXTRA LIFE' },
-    BOMB:   { id: 'BOMB',   color: 0xff8a1a, tex: null,                  weight: 1, label: 'BOMB' }
+    BOMB:   { id: 'BOMB',   color: 0xff8a1a, tex: null,                  weight: 1, label: 'BOMB' },
+    AMMO:   { id: 'AMMO',   color: 0x44aaff, tex: 'powerup_ammo.png',   weight: 3, label: 'AMMO' },
+    COIN:   { id: 'COIN',   color: 0xffd633, tex: 'powerup_coin.png',   weight: 4, label: 'COIN' },
+    MAGNET: { id: 'MAGNET', color: 0xff66cc, tex: 'powerup_magnet.png', weight: 2, label: 'MAGNET' }
   };
-  var TYPE_IDS = ['SHIELD', 'RAPID', 'MULTI', 'LIFE', 'BOMB'];
+  var TYPE_IDS = ['SHIELD', 'RAPID', 'MULTI', 'LIFE', 'BOMB', 'AMMO', 'COIN', 'MAGNET'];
 
   /* ── Helpers ──────────────────────────────────────────────────────────── */
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -222,6 +234,9 @@
     this._tex.MULTI  = this._load(loader, 'powerup_multi.png');
     this._tex.LIFE   = this._heartTex;
     this._tex.BOMB   = this._bombTex;
+    this._tex.AMMO   = this._load(loader, 'powerup_ammo.png');
+    this._tex.COIN   = this._load(loader, 'powerup_coin.png');
+    this._tex.MAGNET = this._load(loader, 'powerup_magnet.png');
 
     // Active + pool.
     this.active = [];
@@ -233,6 +248,7 @@
     // Active timed effects on the player (for cleanup when superseded).
     this._shieldTimer = 0;
     this._rapidTimer  = 0;
+    this._magnetTimer = 0;
     this._activePlayer = null;
 
     // Optional callback invoked when a BOMB is collected — the Game wires
@@ -362,7 +378,7 @@
    * Spawn a power-up of the given type at world (x, y).
    * @param {number} x
    * @param {number} y
-   * @param {string} type  one of TYPE_IDS ('SHIELD','RAPID','MULTI','LIFE','BOMB')
+   * @param {string} type  one of TYPE_IDS ('SHIELD','RAPID','MULTI','LIFE','BOMB','AMMO','COIN','MAGNET')
    */
   PowerUpManager.prototype.spawn = function (x, y, type) {
     if (!TYPES[type]) type = weightedPick();
@@ -432,15 +448,23 @@
       var remaining = rec.life - rec.age;
 
       // Motion: drift downward, with a gentle pull toward the player's x.
+      // The MAGNET timed effect greatly increases the horizontal pull and
+      // adds a vertical pull, vacuuming power-ups toward the player.
+      var magnetActive = this._magnetTimer > 0;
+      var pullX = magnetActive ? 260 : 18;
+      var pullY = magnetActive ? 320 : 0;
       if (playerPos) {
         var dx = playerPos.x - rec.x;
-        rec.vx += clamp(dx, -1, 1) * 18 * dt;   // nudge horizontally toward player
+        rec.vx += clamp(dx, -1, 1) * pullX * dt;   // nudge horizontally toward player
+        var dy = playerPos.y - rec.y;
+        rec.vy += clamp(dy, -1, 1) * pullY * dt;    // magnet also pulls upward
       }
       rec.vy += DRIFT_ACCEL * dt;                 // accelerate downward
       // Cap velocities so it never homes too aggressively.
-      var maxV = 220;
+      var maxV = magnetActive ? 560 : 220;
       if (rec.vx > maxV) rec.vx = maxV; else if (rec.vx < -maxV) rec.vx = -maxV;
-      if (rec.vy > maxV) rec.vy = maxV; else if (rec.vy < 0) rec.vy = 0;
+      if (rec.vy > maxV) rec.vy = maxV; else if (magnetActive) { /* allow upward */ }
+      else if (rec.vy < 0) rec.vy = 0;
       rec.x += rec.vx * dt;
       rec.y += rec.vy * dt;
 
@@ -472,7 +496,7 @@
     }
   };
 
-  /** Apply / expire the timed shield + rapid-fire effects on the player. */
+  /** Apply / expire the timed shield + rapid-fire + magnet effects on the player. */
   PowerUpManager.prototype._updateTimedEffects = function (dt, player) {
     if (!player) return;
     if (this._shieldTimer > 0) {
@@ -487,6 +511,13 @@
       if (this._rapidTimer <= 0) {
         this._rapidTimer = 0;
         if (typeof player.setRapidFire === 'function') player.setRapidFire(false);
+      }
+    }
+    if (this._magnetTimer > 0) {
+      this._magnetTimer -= dt;
+      if (this._magnetTimer <= 0) {
+        this._magnetTimer = 0;
+        if (typeof player.setMagnet === 'function') player.setMagnet(false);
       }
     }
   };
@@ -552,6 +583,31 @@
       case 'BOMB':
         // Screen-clearing bomb — delegate to the Game via callback.
         if (typeof this.onBomb === 'function') this.onBomb(rec.x, rec.y);
+        break;
+      case 'AMMO':
+        // Restore player ammo (clamped to maxAmmo if the player exposes it).
+        if (typeof player.addAmmo === 'function') {
+          player.addAmmo(AMMO_RESTORE);
+        } else if (player.ammo != null) {
+          player.ammo += AMMO_RESTORE;
+          if (player.maxAmmo != null && player.ammo > player.maxAmmo) {
+            player.ammo = player.maxAmmo;
+          }
+        }
+        break;
+      case 'COIN':
+        // Add to the player's coin counter (used for scoring / currency).
+        if (player.coinCount != null) {
+          player.coinCount += COIN_AMOUNT;
+        } else if (typeof player.addCoins === 'function') {
+          player.addCoins(COIN_AMOUNT);
+        }
+        break;
+      case 'MAGNET':
+        // Activate the magnet: pulls power-ups toward the player for a while.
+        if (typeof player.setMagnet === 'function') player.setMagnet(true);
+        this._magnetTimer = MAGNET_DURATION;
+        this._activePlayer = player;
         break;
     }
     if (typeof this.onCollect === 'function') {
@@ -648,6 +704,7 @@
     // Expire timed effects.
     this._shieldTimer = 0;
     this._rapidTimer = 0;
+    this._magnetTimer = 0;
   };
 
   /**
@@ -680,7 +737,7 @@
     if (this._heartTex) this._heartTex.dispose();
     if (this._bombTex) this._bombTex.dispose();
     // Loaded PNG textures: dispose those that aren't shared fallbacks.
-    var keys = ['SHIELD', 'RAPID', 'MULTI'];
+    var keys = ['SHIELD', 'RAPID', 'MULTI', 'AMMO', 'COIN', 'MAGNET'];
     for (var k = 0; k < keys.length; k++) {
       var t = this._tex[keys[k]];
       if (t && t !== this._glowTex) {

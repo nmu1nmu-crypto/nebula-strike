@@ -23,24 +23,28 @@
  *          Set by the Game; invoked on damage / hyperbeam release.
  *
  *  Textures loaded from assets/textures/:
- *      player_ship.png   (512x512)   ship hull
- *      engine_trail.png   (128x256)  engine exhaust trail
+ *      player_ship.png       (512x512)  ship hull (default / level 1)
+ *      player_ship_0.png … player_ship_9.png   per-level ship skins
+ *      engine_trail.png      (128x256)  engine exhaust trail
+ *      powerup_ammo.png      ammo pickup
+ *      powerup_coin.png      coin pickup
+ *      powerup_magnet.png    magnet pickup
  * ========================================================================== */
 
 (function (global) {
   'use strict';
 
   /* ── Tunables ─────────────────────────────────────────────────────────── */
-  const SHIP_SIZE          = 80;       // sprite scale (world units)
-  const TRAIL_SIZE         = 60;        // engine trail sprite scale
+  const SHIP_SIZE          = 120;      // sprite scale (world units)
+  const TRAIL_SIZE         = 90;        // engine trail sprite scale
   const HIT_RADIUS         = 28;       // collision radius
-  const MUZZLE_OFFSET_Y    = 38;       // bullet spawn offset from ship center
-  const ACCEL              = 2600;      // px/s^2
-  const MAX_SPEED          = 520;       // px/s
-  const DECEL              = 3400;      // braking when no input
+  const MUZZLE_OFFSET_Y    = 55;       // bullet spawn offset from ship center
+  const ACCEL              = 1600;      // px/s^2
+  const MAX_SPEED          = 320;       // px/s
+  const DECEL              = 2200;      // braking when no input
   const BANK_MAX           = 15 * Math.PI / 180;   // 15° max bank
   const BANK_LERP          = 6;         // bank smoothing speed
-  const BOUNDS_X           = 380;       // playfield half-width
+  const BOUNDS_X           = 360;       // playfield half-width
   const BOUNDS_Y_TOP       = -160;      // upper limit (don't fly into enemies)
   const BOUNDS_Y_BOTTOM   = -560;      // lower limit
   const START_POS_Y        = -500;
@@ -57,6 +61,13 @@
   const IDLE_BOB_AMPLITUDE = 4;          // px
   const IDLE_BOB_SPEED     = 2.2;        // rad/s
   const SHIELD_RADIUS      = 60;
+
+  /* ── Ammo / coin / magnet tunables ────────────────────────────────────── */
+  const MAX_AMMO           = 999;      // effectively infinite but tracked
+  const AMMO_PER_PICKUP    = 50;       // ammo power-up restores this many
+  const MAGNET_DURATION    = 8.0;       // seconds the magnet effect lasts
+  const MAGNET_RADIUS      = 220;      // px — how far the magnet reaches
+  const MAGNET_FORCE       = 900;       // px/s^2 pull toward the ship
 
   /* ── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -118,6 +129,13 @@
     this._rapidFire  = false;
     this._shielded   = false;
 
+    /* Ammo / coin / magnet state. */
+    this.maxAmmo     = MAX_AMMO;
+    this.ammo        = MAX_AMMO;   // tracked but effectively infinite
+    this.coinCount    = 0;          // collected coins (progression/monetization)
+    this.magnetTimer  = 0;          // >0 while magnet effect is active
+    this.magnetActive = false;
+
     /* Timers. */
     this._fireCooldown     = 0;
     this._invulnTimer      = 0;
@@ -134,7 +152,9 @@
     /* ---- Visuals ---- */
 
     // Ship sprite
-    const shipTex = new THREE.TextureLoader().load('assets/textures/player_ship.png');
+    this._textureLoader = new THREE.TextureLoader();
+    this._shipTexturePath = 'assets/textures/player_ship.png';
+    const shipTex = this._textureLoader.load(this._shipTexturePath);
     this._shipMat = new THREE.SpriteMaterial({
       map: shipTex,
       transparent: true,
@@ -263,6 +283,7 @@
     this._updateFiring(dt, input, bulletManager);
     this._updateSpecial(dt, input);
     this._updateInvulnerability(dt);
+    this._updateMagnet(dt);
     this._updateEngineTrail(dt);
     this._updateEngineParticles(dt);
     this._updateMuzzleFlash(dt);
@@ -305,14 +326,22 @@
     this.chargingSpecial = false;
     this._rapidFire = false;
     this._shielded = false;
+    this.ammo = this.maxAmmo;
+    this.coinCount = 0;
+    this.magnetTimer = 0;
+    this.magnetActive = false;
     this._bankAngle = 0;
     this._shieldGroup.visible = false;
     this._shipMat.opacity = 1;
+    // Restore default ship skin.
+    this.setShipTexture('player_ship.png');
     this._syncTransform();
   };
 
   Player.prototype.setWeaponLevel = function (n) {
     this.weaponLevel = clamp(Math.floor(n), 1, 4);
+    // Swap the ship skin to match the new level (player_ship_0.png …).
+    this.setShipTextureForLevel(this.weaponLevel);
   };
 
   Player.prototype.setRapidFire = function (on) {
@@ -322,6 +351,128 @@
   Player.prototype.setShield = function (on) {
     this._shielded = !!on;
     this._shieldGroup.visible = this._shielded;
+  };
+
+  /**
+   * Swap the ship's hull texture.  Used for per-level ship skins
+   * (player_ship_0.png … player_ship_9.png).  Disposes the old texture
+   * and loads the new one onto the existing sprite material.
+   * @param {string} texturePath  path under assets/textures/, e.g. 'player_ship_3.png'
+   */
+  Player.prototype.setShipTexture = function (texturePath) {
+    if (!texturePath || texturePath === this._shipTexturePath) return;
+    this._shipTexturePath = texturePath;
+    const full = texturePath.indexOf('/') === -1
+      ? 'assets/textures/' + texturePath
+      : texturePath;
+    const newTex = this._textureLoader.load(full);
+    const oldTex = this._shipMat.map;
+    this._shipMat.map = newTex;
+    this._shipMat.needsUpdate = true;
+    if (oldTex && oldTex.dispose) oldTex.dispose();
+  };
+
+  /**
+   * Switch the ship skin to match the current weapon level (1..10).
+   * Levels map to player_ship_0.png … player_ship_9.png.
+   * @param {number} level  weapon level (clamped to 0..9 index)
+   */
+  Player.prototype.setShipTextureForLevel = function (level) {
+    const idx = clamp(Math.floor(level) - 1, 0, 9);
+    this.setShipTexture('player_ship_' + idx + '.png');
+  };
+
+  /**
+   * Resize the ship sprite (and dependent visual elements: engine trail,
+   * muzzle flash, charge glow, shield bubble).  Pass the desired sprite
+   * scale in world units (e.g. 120).
+   * @param {number} size  new ship sprite scale (world units)
+   */
+  Player.prototype.setShipSize = function (size) {
+    const s = Math.max(1, Math.floor(size));
+    this._shipSize = s;
+    this.sprite.scale.set(s, s, 1);
+    // Scale the dependent visual elements proportionally.
+    const trailScale = (s / SHIP_SIZE) * TRAIL_SIZE;
+    this._trail.scale.set(trailScale, trailScale * 1.6, 1);
+    this._muzzleFlash.scale.set(s * 0.9, s * 0.9, 1);
+    this._chargeGlow.scale.set(s * 1.6, s * 1.6, 1);
+  };
+
+  /* ── Ammo system ─────────────────────────────────────────────────────── */
+
+  /**
+   * Spend one unit of ammo.  Returns true if there was ammo to spend.
+   * With maxAmmo=999 this is effectively always true but the count is tracked.
+   */
+  Player.prototype.spendAmmo = function (amount) {
+    const n = amount || 1;
+    if (this.ammo <= 0) return false;
+    this.ammo = Math.max(0, this.ammo - n);
+    return true;
+  };
+
+  /**
+   * Restore ammo from a pickup.  Caps at maxAmmo.
+   * @returns {number} ammo actually added (clamped).
+   */
+  Player.prototype.addAmmo = function (amount) {
+    const before = this.ammo;
+    this.ammo = Math.min(this.maxAmmo, this.ammo + (amount || AMMO_PER_PICKUP));
+    return this.ammo - before;
+  };
+
+  /* ── Coin collection ─────────────────────────────────────────────────── */
+
+  /**
+   * Record collected coins.  @returns the new total coinCount.
+   */
+  Player.prototype.addCoins = function (amount) {
+    this.coinCount += (amount || 1);
+    return this.coinCount;
+  };
+
+  /* ── Magnet effect ──────────────────────────────────────────────────── */
+
+  /**
+   * Activate (or refresh) the pickup magnet for MAGNET_DURATION seconds.
+   */
+  Player.prototype.activateMagnet = function (duration) {
+    this.magnetTimer = (duration !== undefined) ? duration : MAGNET_DURATION;
+    this.magnetActive = true;
+  };
+
+  Player.prototype.deactivateMagnet = function () {
+    this.magnetTimer = 0;
+    this.magnetActive = false;
+  };
+
+  /**
+   * @returns true if the magnet is currently pulling nearby pickups.
+   */
+  Player.prototype.isMagnetActive = function () {
+    return this.magnetActive;
+  };
+
+  /**
+   * Apply the magnet pull to a target world-space point {x,y}.
+   * Mutates the target in place and returns it.  No-op if magnet inactive
+   * or the target is outside MAGNET_RADIUS.
+   * @param {{x:number,y:number}} target
+   * @param {number} dt  delta seconds
+   */
+  Player.prototype.applyMagnetPull = function (target, dt) {
+    if (!this.magnetActive) return target;
+    const dx = this.position.x - target.x;
+    const dy = this.position.y - target.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > MAGNET_RADIUS || dist < 1) return target;
+    // Acceleration toward the ship, stronger as it gets closer.
+    const strength = MAGNET_FORCE * (1 - dist / MAGNET_RADIUS);
+    const inv = 1 / dist;
+    target.x += dx * inv * strength * dt;
+    target.y += dy * inv * strength * dt;
+    return target;
   };
 
   Player.prototype.getHitRadius = function () {
@@ -421,9 +572,10 @@
     this._fireCooldown -= dt;
     if (this._fireCooldown < 0) this._fireCooldown = 0;
 
-    if (this.shooting && this._fireCooldown <= 0) {
+    if (this.shooting && this._fireCooldown <= 0 && this.ammo > 0) {
       const rate = this._rapidFire ? FIRE_RATE_RAPID : FIRE_RATE_BASE;
       this._fireCooldown = rate;
+      this.spendAmmo(1);
       this._fire(bulletManager);
       this._muzzleFlashTimer = MUZZLE_FLASH_TIME;
     }
@@ -496,6 +648,16 @@
       if (this._invulnTimer <= 0) {
         this.invulnerable = false;
         this._shipMat.opacity = 1;
+      }
+    }
+  };
+
+  Player.prototype._updateMagnet = function (dt) {
+    if (this.magnetTimer > 0) {
+      this.magnetTimer -= dt;
+      if (this.magnetTimer <= 0) {
+        this.magnetTimer = 0;
+        this.magnetActive = false;
       }
     }
   };

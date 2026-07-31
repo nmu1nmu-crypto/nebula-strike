@@ -149,20 +149,50 @@
       color: 0xffffff, texFile: 'enemy_grunt.png',
       diveChance: 0.18, canShoot: false, fireRate: 0, shotSpeed: 0, shotType: null
     },
+    // scout — small, fast, weak. Blue-grey raider that harasses the player.
+    scout: {
+      hp: 20, score: 50, size: 44, hitRadius: 18, speed: 1.6,
+      color: 0xffffff, texFile: 'enemy_scout.png',
+      diveChance: 0.32, canShoot: true, fireRange: 700, fireRate: 2.2, shotSpeed: 320, shotType: 'grunt'
+    },
     bomber: {
       hp: 60, score: 250, size: 64, hitRadius: 28, speed: 0.8,
       color: 0xffffff, texFile: 'enemy_bomber.png',
       diveChance: 0.06, canShoot: true, fireRange: 760, fireRate: 2.4, shotSpeed: 360, shotType: 'grunt'
+    },
+    // fighter — aggressive red-orange, medium HP, dives often and fires fast.
+    fighter: {
+      hp: 45, score: 150, size: 56, hitRadius: 24, speed: 1.15,
+      color: 0xffffff, texFile: 'enemy_fighter.png',
+      diveChance: 0.26, canShoot: true, fireRange: 820, fireRate: 1.7, shotSpeed: 400, shotType: 'grunt'
+    },
+    // heavy — slow purple armored bomber, tanky, hits hard but rarely dives.
+    heavy: {
+      hp: 80, score: 300, size: 80, hitRadius: 34, speed: 0.6,
+      color: 0xffffff, texFile: 'enemy_heavy.png',
+      diveChance: 0.04, canShoot: true, fireRange: 880, fireRate: 2.6, shotSpeed: 340, shotType: 'grunt'
     },
     commander: {
       hp: 100, score: 500, size: 72, hitRadius: 32, speed: 1.25,
       color: 0xffffff, texFile: 'enemy_commander.png',
       diveChance: 0.35, canShoot: true, fireRange: 900, fireRate: 1.6, shotSpeed: 420, shotType: 'grunt'
     },
+    // elite — gold ornate, strong, high HP, fires a 5-shot spread.
+    elite: {
+      hp: 120, score: 600, size: 70, hitRadius: 30, speed: 1.1,
+      color: 0xffffff, texFile: 'enemy_elite.png',
+      diveChance: 0.20, canShoot: true, fireRange: 960, fireRate: 1.3, shotSpeed: 460, shotType: 'grunt'
+    },
     boss: {
       hp: 1000, score: 5000, size: 260, hitRadius: 120, speed: 0.6,
-      color: 0xffffff, texFile: 'boss.png',
+      color: 0xffffff, texFile: 'boss_v2.png',
       diveChance: 0, canShoot: true, fireRange: 99999, fireRate: 0.6, shotSpeed: 320, shotType: 'boss'
+    },
+    // asteroid — purely decorative drifting rock (no collision, no shooting).
+    asteroid: {
+      hp: 1, score: 0, size: 96, hitRadius: 0, speed: 0.4,
+      color: 0xffffff, texFile: 'asteroid.png',
+      diveChance: 0, canShoot: false, fireRate: 0, shotSpeed: 0, shotType: null
     }
   };
 
@@ -171,6 +201,13 @@
   var BOSS_PATTERNS = ['aimedSpread', 'spiral', 'fan', 'summon'];
   var BOSS_SUMMON_COUNT = 4;
   var BOSS_MINION_HP = 40;
+
+  // Asteroid (decorative scenery) tunables.
+  var ASTEROID_SPAWN_INTERVAL = 2.4;   // seconds between spawn attempts
+  var ASTEROID_SPAWN_CHANCE  = 0.5;    // probability per interval attempt
+  var ASTEROID_MAX_LIVE      = 8;     // max concurrent decorative asteroids
+  var ASTEROID_DRIFT_SPEED   = 90;    // px/s downward drift
+  var ASTEROID_SPIN_RANGE     = 1.2;  // radians/sec spin magnitude
 
   /* ── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -703,15 +740,22 @@
 
     this.shootCooldown = cfg.fireRate * (0.8 + 0.4 * Math.random());
 
-    if (this.type === 'commander') {
+    if (this.type === 'commander' || this.type === 'fighter') {
       // Spread of 3 shots.
       var base = angleToward(this.position, playerPos);
       for (var i = -1; i <= 1; i++) {
         var ang = base + i * 0.22;
         bulletManager.spawnEnemyBullet(this.position.x, this.position.y - 24, ang, cfg.shotSpeed, cfg.shotType);
       }
+    } else if (this.type === 'elite') {
+      // Spread of 5 shots — the elite's signature barrage.
+      var eBase = angleToward(this.position, playerPos);
+      for (var k = -2; k <= 2; k++) {
+        var eAng = eBase + k * 0.20;
+        bulletManager.spawnEnemyBullet(this.position.x, this.position.y - 24, eAng, cfg.shotSpeed, cfg.shotType);
+      }
     } else {
-      // Bomber: single aimed shot.
+      // Bomber / scout / heavy: single aimed shot.
       var a = angleToward(this.position, playerPos);
       bulletManager.spawnEnemyBullet(this.position.x, this.position.y - 24, a, cfg.shotSpeed, cfg.shotType);
     }
@@ -868,6 +912,10 @@
     var col = 0xffaa44;
     if (this.type === 'commander') col = 0xffdd66;
     else if (this.type === 'boss') col = 0xcc66ff;
+    else if (this.type === 'scout') col = 0x88bbff;
+    else if (this.type === 'fighter') col = 0xff7744;
+    else if (this.type === 'heavy') col = 0xaa66ff;
+    else if (this.type === 'elite') col = 0xffcc44;
     sp.material.color.setHex(col);
     var p = {
       sprite: sp,
@@ -960,6 +1008,103 @@
   };
 
   /* =============================================================================
+   *  Asteroid  —  decorative drifting scenery (no collision, no shooting)
+   * ========================================================================== */
+
+  /**
+   * A non-interactive decorative asteroid that drifts downward through the
+   * scene and slowly rotates.  It never collides with the player or bullets
+   * (hitRadius is 0 in TYPE_CONFIG) and awards no score — it exists purely
+   * for visual ambience.  The EnemyManager spawns and updates these
+   * alongside regular enemies; the collision system ignores them because
+   * getEnemies() only returns entries with a positive hitRadius.
+   *
+   * Public surface:
+   *      new Asteroid(scene)
+   *      .update(dt)
+   *      .isOffscreen() -> bool
+   *      .destroy()
+   */
+  function Asteroid(scene) {
+    this.scene = scene;
+    this.type = 'asteroid';
+    this.alive = true;
+    this._exploding = false;
+    this.score = 0;
+    this.health = 1;
+    this.maxHealth = 1;
+
+    // Random entry from the top edge, full playfield width.
+    this.position = new THREE.Vector2(
+      (Math.random() - 0.5) * (FIELD_HALF_W * 2),
+      FIELD_TOP + 80 + Math.random() * 120
+    );
+    this._vx = (Math.random() - 0.5) * 30;
+    this._vy = ASTEROID_DRIFT_SPEED * (0.7 + Math.random() * 0.7);
+    this._spin = (Math.random() - 0.5) * 2 * ASTEROID_SPIN_RANGE;
+    this._rotation = Math.random() * Math.PI * 2;
+    this._sizeScale = 0.7 + Math.random() * 0.6;
+
+    var cfg = TYPE_CONFIG.asteroid;
+    var loader = new THREE.TextureLoader();
+    this._texture = loader.load(TEX_DIR + cfg.texFile);
+    this._material = new THREE.SpriteMaterial({
+      map: this._texture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      opacity: 0.9
+    });
+    this.sprite = new THREE.Sprite(this._material);
+    var s = cfg.size * this._sizeScale;
+    this.sprite.scale.set(s, s, 1);
+    this.sprite.renderOrder = 5; // behind gameplay sprites
+    this.scene.add(this.sprite);
+
+    // hitRadius 0 — collision systems must skip this.
+    this._cfg = cfg;
+
+    this._syncTransform();
+  }
+
+  Asteroid.prototype.update = function (dt) {
+    this.position.x += this._vx * dt;
+    this.position.y += this._vy * dt;
+    this._rotation += this._spin * dt;
+
+    // Cull once it passes well below the playfield.
+    if (this.position.y < FIELD_BOTTOM - 100) {
+      this.alive = false;
+    }
+    this._syncTransform();
+  };
+
+  Asteroid.prototype.isOffscreen = function () {
+    return !this.alive;
+  };
+
+  Asteroid.prototype.getHitRadius = function () { return 0; };
+  Asteroid.prototype.getPosition = function () {
+    return { x: this.position.x, y: this.position.y };
+  };
+  Asteroid.prototype.takeDamage = function () { return false; };
+  Asteroid.prototype.dive = function () {};
+  Asteroid.prototype.returnToFormation = function () {};
+  Asteroid.prototype.destroy = function () {
+    if (this.sprite) {
+      this.scene.remove(this.sprite);
+      if (this.sprite.material) this.sprite.material.dispose();
+    }
+    if (this._texture) this._texture.dispose();
+    this.alive = false;
+  };
+
+  Asteroid.prototype._syncTransform = function () {
+    this.sprite.position.set(this.position.x, this.position.y, 0.1);
+    this.sprite.material.rotation = this._rotation;
+  };
+
+  /* =============================================================================
    *  EnemyManager
    * ========================================================================== */
 
@@ -967,6 +1112,10 @@
     this.scene = scene;
     this.enemies = [];
     this.wave = 0;
+
+    // Decorative asteroids (visual scenery, not gameplay targets).
+    this._asteroids = [];
+    this._asteroidTimer = ASTEROID_SPAWN_INTERVAL;
 
     // Callbacks the Game can set.
     this.onEnemyKilled = null;      // function(enemy) -> score/sfx hook
@@ -978,19 +1127,29 @@
   /**
    * Spawn a wave of enemies.  Wave composition scales with waveNum:
    *   - Waves 1-2:   grunts only
-   *   - Waves 3-4:   grunts + a few bombers
-   *   - Waves 5-7:   grunts + bombers + a commander
+   *   - Waves 3-4:   grunts + scouts + a few bombers
+   *   - Waves 5-7:   grunts + bombers + fighters + a commander
    *   - Wave 8:      BOSS (plus minions summoned during the fight)
-   *   - Wave 9+:     repeat with scaling HP
+   *   - Wave 9+:     repeat with scaling HP, heavies and elites appear from wave 6+
    *   - Every 8th wave: boss
+   *
+   * @param {number} waveNum
+   * @param {object} [opts]  optional per-level overrides supplied by the Game:
+   *      opts.enemyTypes  Array<string>  roster to draw enemy types from
+   *      opts.count       number         desired enemy count (formation grid sizing)
+   *      opts.bossWave    boolean       force a boss wave regardless of waveNum
+   *      opts.diveRate    number        0..1 dive aggressiveness (currently informational)
    */
-  EnemyManager.prototype.spawnWave = function (waveNum) {
+  EnemyManager.prototype.spawnWave = function (waveNum, opts) {
     this.wave = waveNum;
     // Don't clear here — the Game calls clear() between waves.  But we do
     // ensure we're empty.
     if (this.enemies.length) this.clear();
 
-    var isBossWave = (waveNum % 8 === 0);
+    opts = opts || {};
+    var enemyTypes = opts.enemyTypes;
+    var desiredCount = opts.count;
+    var isBossWave = (opts.bossWave === true) || (waveNum % 8 === 0);
     var hpScale = 1 + (waveNum - 1) * 0.18; // +18% HP per wave
 
     if (isBossWave) {
@@ -999,8 +1158,16 @@
     }
 
     // Formation grid: rows x columns of slots.
-    var cols = clamp(6 + Math.floor(waveNum / 2), 6, 10);
-    var rows = clamp(2 + Math.floor(waveNum / 3), 2, 4);
+    // If the Game supplied a desired count, size the grid to fit it.
+    var cols, rows;
+    if (desiredCount) {
+      // Aim for a roughly rectangular grid that fits the count.
+      cols = clamp(Math.ceil(Math.sqrt(desiredCount)) + 1, 6, 10);
+      rows = Math.max(2, Math.ceil(desiredCount / cols));
+    } else {
+      cols = clamp(6 + Math.floor(waveNum / 2), 6, 10);
+      rows = clamp(2 + Math.floor(waveNum / 3), 2, 4);
+    }
     var spacingX = 90;
     var spacingY = 70;
     var topY = FIELD_TOP - 80;
@@ -1012,15 +1179,38 @@
         var fx = leftX + c * spacingX;
         var fy = topY - r * spacingY;
 
-        // Pick type based on row (top rows = stronger).
-        var type = 'grunt';
-        if (r === 0 && waveNum >= 5) type = 'commander';
-        else if (r <= 1 && waveNum >= 3) type = 'bomber';
-        else type = 'grunt';
-
-        // Only one commander per wave (the first slot of row 0).
-        if (type === 'commander' && slotIndex > 0 && this._hasCommander()) {
+        var type;
+        if (enemyTypes && enemyTypes.length) {
+          // Use the level's roster.  Top rows get the stronger archetypes
+          // (later entries in the roster), lower rows get the weaker ones.
+          // The strongest type is the last entry; the weakest is the first.
+          var idx = enemyTypes.length - 1 - Math.min(r, enemyTypes.length - 1);
+          idx = clamp(idx, 0, enemyTypes.length - 1);
+          type = enemyTypes[idx];
+          // Sprinkle a little variety within a row.
+          if (enemyTypes.length > 1 && Math.random() < 0.2) {
+            type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+          }
+        } else {
+          // Fallback: original wave-number-based composition.
           type = 'grunt';
+          if (r === 0 && waveNum >= 5) type = 'commander';
+          else if (r === 0 && waveNum >= 6) type = 'elite';
+          else if (r <= 1 && waveNum >= 5) type = 'heavy';
+          else if (r <= 1 && waveNum >= 3) type = 'bomber';
+          else if (r <= 1 && waveNum >= 2) type = 'fighter';
+          else if (waveNum >= 2) type = (Math.random() < 0.35) ? 'scout' : 'grunt';
+          else type = 'grunt';
+        }
+
+        // 'boss' should never be spawned as a regular formation slot; demote it.
+        if (type === 'boss') type = 'commander';
+
+        // Only one commander or elite per wave (the first qualifying slot).
+        if ((type === 'commander' || type === 'elite') && slotIndex > 0 &&
+            (this._hasCommander() || this._hasElite())) {
+          type = enemyTypes && enemyTypes.length ? enemyTypes[0] : 'bomber';
+          if (type === 'boss') type = 'bomber';
         }
 
         var e = new Enemy(this.scene, type, { x: fx, y: fy });
@@ -1036,13 +1226,22 @@
 
         this.enemies.push(e);
         slotIndex++;
+        if (desiredCount && slotIndex >= desiredCount) break;
       }
+      if (desiredCount && slotIndex >= desiredCount) break;
     }
   };
 
   EnemyManager.prototype._hasCommander = function () {
     for (var i = 0; i < this.enemies.length; i++) {
       if (this.enemies[i].type === 'commander' && this.enemies[i].alive) return true;
+    }
+    return false;
+  };
+
+  EnemyManager.prototype._hasElite = function () {
+    for (var i = 0; i < this.enemies.length; i++) {
+      if (this.enemies[i].type === 'elite' && this.enemies[i].alive) return true;
     }
     return false;
   };
@@ -1090,6 +1289,41 @@
         this.enemies.splice(i, 1);
       }
     }
+
+    this._updateAsteroids(dt);
+  };
+
+  /* ── Decorative asteroids ──────────────────────────────────────────────── */
+
+  /**
+   * Spawn and advance decorative asteroids.  These are pure scenery: they
+   * drift downward, rotate slowly, and are culled off the bottom.  They have
+   * no collision (hitRadius 0) and are kept in a separate list from the
+   * gameplay enemies so getEnemies() / checkCollisions() never see them.
+   */
+  EnemyManager.prototype._updateAsteroids = function (dt) {
+    this._asteroidTimer -= dt;
+    if (this._asteroidTimer <= 0) {
+      this._asteroidTimer = ASTEROID_SPAWN_INTERVAL;
+      if (this._asteroids.length < ASTEROID_MAX_LIVE &&
+          Math.random() < ASTEROID_SPAWN_CHANCE) {
+        this._asteroids.push(new Asteroid(this.scene));
+      }
+    }
+
+    for (var i = this._asteroids.length - 1; i >= 0; i--) {
+      var a = this._asteroids[i];
+      a.update(dt);
+      if (a.isOffscreen()) {
+        a.destroy();
+        this._asteroids.splice(i, 1);
+      }
+    }
+  };
+
+  /** Return live decorative asteroids (for rendering / debug). */
+  EnemyManager.prototype.getAsteroids = function () {
+    return this._asteroids;
   };
 
   EnemyManager.prototype.getEnemies = function () {
@@ -1149,6 +1383,10 @@
       this.enemies[i].destroy();
     }
     this.enemies.length = 0;
+    for (var j = 0; j < this._asteroids.length; j++) {
+      this._asteroids[j].destroy();
+    }
+    this._asteroids.length = 0;
   };
 
   EnemyManager.prototype.destroy = function () {
@@ -1171,5 +1409,6 @@
   Enemy.TYPE_CONFIG = TYPE_CONFIG;
   global.Enemy = Enemy;
   global.EnemyManager = EnemyManager;
+  global.Asteroid = Asteroid;
 
 })(typeof window !== 'undefined' ? window : globalThis);

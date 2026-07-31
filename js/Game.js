@@ -25,18 +25,43 @@
   // ── Level Definitions ──────────────────────────────────────────────────
   // 10 themed levels, each cycling through different background themes and
   // escalating difficulty. After level 10, levels repeat with increased HP.
+  // Per-level enemy-type roster (used by EnemyManager.spawnWave when supplied).
+  //   Levels 1-2:  scouts + grunts
+  //   Levels 3-4:  scouts + fighters + grunts
+  //   Levels 5-6:  fighters + heavies + bombers
+  //   Levels 7-8:  heavies + elites + commanders
+  //   Levels 9-10: elites + commanders + boss
   var LEVELS = [
-    { name: 'Deep Space',     themeIdx: 0, musicTrack: 0, enemyHpMul: 1.0,  enemyCount: 8,  diveRate: 0.4,  bossWave: false },
-    { name: 'Crimson Nebula', themeIdx: 1, musicTrack: 0, enemyHpMul: 1.1,  enemyCount: 10, diveRate: 0.5,  bossWave: false },
-    { name: 'Emerald Void',   themeIdx: 2, musicTrack: 1, enemyHpMul: 1.2,  enemyCount: 12, diveRate: 0.5,  bossWave: false },
-    { name: 'Purple Haze',    themeIdx: 3, musicTrack: 1, enemyHpMul: 1.3,  enemyCount: 12, diveRate: 0.6,  bossWave: false },
-    { name: 'Golden Wastes',  themeIdx: 4, musicTrack: 0, enemyHpMul: 1.4,  enemyCount: 14, diveRate: 0.6,  bossWave: false },
-    { name: 'Ice Fields',     themeIdx: 5, musicTrack: 1, enemyHpMul: 1.5,  enemyCount: 14, diveRate: 0.7,  bossWave: false },
-    { name: 'Inferno',        themeIdx: 6, musicTrack: 0, enemyHpMul: 1.6,  enemyCount: 16, diveRate: 0.7,  bossWave: true  },
-    { name: 'Twilight',       themeIdx: 7, musicTrack: 2, enemyHpMul: 1.8,  enemyCount: 16, diveRate: 0.8,  bossWave: false },
-    { name: 'Aurora',         themeIdx: 8, musicTrack: 2, enemyHpMul: 2.0,  enemyCount: 18, diveRate: 0.8,  bossWave: false },
-    { name: 'The Void',       themeIdx: 9, musicTrack: 2, enemyHpMul: 2.5,  enemyCount: 20, diveRate: 0.9,  bossWave: true  }
+    { name: 'Deep Space',     themeIdx: 0, musicTrack: 0, enemyHpMul: 1.0,  enemyCount: 8,  diveRate: 0.4,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_0.png', shipSize: 120, enemyTypes: ['scout', 'grunt'] },
+    { name: 'Crimson Nebula', themeIdx: 1, musicTrack: 0, enemyHpMul: 1.1,  enemyCount: 10, diveRate: 0.5,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_1.png', shipSize: 120, enemyTypes: ['scout', 'grunt'] },
+    { name: 'Emerald Void',   themeIdx: 2, musicTrack: 1, enemyHpMul: 1.2,  enemyCount: 12, diveRate: 0.5,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_2.png', shipSize: 120, enemyTypes: ['scout', 'fighter', 'grunt'] },
+    { name: 'Purple Haze',    themeIdx: 3, musicTrack: 1, enemyHpMul: 1.3,  enemyCount: 12, diveRate: 0.6,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_3.png', shipSize: 120, enemyTypes: ['scout', 'fighter', 'grunt'] },
+    { name: 'Golden Wastes',  themeIdx: 4, musicTrack: 0, enemyHpMul: 1.4,  enemyCount: 14, diveRate: 0.6,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_4.png', shipSize: 120, enemyTypes: ['fighter', 'heavy', 'bomber'] },
+    { name: 'Ice Fields',     themeIdx: 5, musicTrack: 1, enemyHpMul: 1.5,  enemyCount: 14, diveRate: 0.7,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_5.png', shipSize: 120, enemyTypes: ['fighter', 'heavy', 'bomber'] },
+    { name: 'Inferno',        themeIdx: 6, musicTrack: 0, enemyHpMul: 1.6,  enemyCount: 16, diveRate: 0.7,  bossWave: true,
+      shipTexture: 'assets/textures/player_ship_6.png', shipSize: 120, enemyTypes: ['heavy', 'elite', 'commander'] },
+    { name: 'Twilight',       themeIdx: 7, musicTrack: 2, enemyHpMul: 1.8,  enemyCount: 16, diveRate: 0.8,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_7.png', shipSize: 120, enemyTypes: ['heavy', 'elite', 'commander'] },
+    { name: 'Aurora',         themeIdx: 8, musicTrack: 2, enemyHpMul: 2.0,  enemyCount: 18, diveRate: 0.8,  bossWave: false,
+      shipTexture: 'assets/textures/player_ship_8.png', shipSize: 120, enemyTypes: ['elite', 'commander', 'boss'] },
+    { name: 'The Void',       themeIdx: 9, musicTrack: 2, enemyHpMul: 2.5,  enemyCount: 20, diveRate: 0.9,  bossWave: true,
+      shipTexture: 'assets/textures/player_ship_9.png', shipSize: 120, enemyTypes: ['elite', 'commander', 'boss'] }
   ];
+
+  // Coins awarded per enemy type when killed.
+  var COINS_PER_TYPE = {
+    grunt: 1, scout: 1, fighter: 3, heavy: 5, bomber: 3,
+    elite: 10, commander: 10, boss: 50
+  };
+
+  // Brief pause after clearing a wave before the next wave transition begins.
+  var WAVE_CLEAR_DELAY = 1.0;
 
   // ── Game ──────────────────────────────────────────────────────────────
   function Game() {
@@ -82,6 +107,7 @@
     this.levelIdx   = 0;  // index into LEVELS array
     this.currentLevel = null;
     this.score      = 0;
+    this.coins      = 0;
     this.combo      = 1;
     this.comboTimer = 0;
     this.maxCombo   = 1;
@@ -89,6 +115,7 @@
     this.waveTransitionTimer = 0;
     this.enemySpawnPending = false;
     this.bossWarningTimer  = 0;
+    this.waveClearTimer = 0;   // brief delay after clearing a wave before the transition starts
 
     // ── Callback wiring ──
     this.player.onHit = this._onPlayerHit.bind(this);
@@ -118,6 +145,7 @@
     // Show start screen
     this.ui.showStart(true);
     this.ui.setScore(0);
+    this.ui.setCoins(0);
     this.ui.setLives(3);
     this.ui.setCombo(1, 0);
 
@@ -296,10 +324,20 @@
       }
     }
 
-    // Check wave clear
-    if (this.enemies.getAliveCount() === 0 && !this.enemySpawnPending) {
-      this.enemySpawnPending = true;
-      this._startWaveTransition();
+    // Check wave clear — give the player a brief moment to breathe before
+    // the next wave transition begins.
+    if (this.enemies.getAliveCount() === 0 && !this.enemySpawnPending && this.waveClearTimer >= 0) {
+      if (this.waveClearTimer === 0) {
+        // First frame we notice the field is clear — start the delay timer.
+        this.waveClearTimer = WAVE_CLEAR_DELAY;
+      } else {
+        this.waveClearTimer -= dt;
+        if (this.waveClearTimer <= 0) {
+          this.waveClearTimer = -1;  // sentinel: transition already triggered
+          this.enemySpawnPending = true;
+          this._startWaveTransition();
+        }
+      }
     }
 
     // Boss warning
@@ -316,13 +354,16 @@
     this.state    = STATE.PLAYING;
     this.waveNum  = 0;
     this.score    = 0;
+    this.coins    = 0;
     this.combo    = 1;
     this.maxCombo = 1;
     this.comboTimer = 0;
     this.enemySpawnPending = false;
+    this.waveClearTimer = 0;
 
     this.ui.hideAll();
     this.ui.setScore(0);
+    this.ui.setCoins(0);
     this.ui.setLives(3);
     this.ui.setCombo(1, 0);
 
@@ -344,6 +385,7 @@
     this.state = STATE.WAVE_TRANS;
     this.waveTransitionTimer = 2.5;
     this.enemySpawnPending = false;
+    this.waveClearTimer = 0;
 
     // Determine which level config to use (cycle through LEVELS, escalating after 10)
     this.levelIdx = (this.waveNum - 1) % LEVELS.length;
@@ -387,7 +429,34 @@
 
   Game.prototype._spawnWave = function () {
     this.state = STATE.PLAYING;
-    this.enemies.spawnWave(this.waveNum);
+
+    // Per-level enemy variety: pass the level's type roster to the spawner
+    // so it composes the wave from the appropriate archetypes.  When not
+    // supplied, EnemyManager falls back to its wave-number-based logic.
+    var spawnOpts = {};
+    if (this.currentLevel && this.currentLevel.enemyTypes) {
+      spawnOpts.enemyTypes = this.currentLevel.enemyTypes;
+    }
+    if (this.currentLevel && this.currentLevel.enemyCount) {
+      spawnOpts.count = this.currentLevel.enemyCount;
+    }
+    if (this.currentLevel && this.currentLevel.bossWave) {
+      spawnOpts.bossWave = true;
+    }
+    if (this.currentLevel && typeof this.currentLevel.diveRate === 'number') {
+      spawnOpts.diveRate = this.currentLevel.diveRate;
+    }
+    this.enemies.spawnWave(this.waveNum, spawnOpts);
+
+    // Per-level player ship skin & size — change appearance every level.
+    if (this.currentLevel && this.currentLevel.shipTexture &&
+        typeof this.player.setShipTexture === 'function') {
+      this.player.setShipTexture(this.currentLevel.shipTexture);
+    }
+    if (this.currentLevel && this.currentLevel.shipSize &&
+        typeof this.player.setShipSize === 'function') {
+      this.player.setShipSize(this.currentLevel.shipSize);
+    }
 
     // Apply level-specific HP multiplier to all spawned enemies
     if (this.currentLevel && this.currentLevel.enemyHpMul) {
@@ -501,6 +570,16 @@
     var totalScore = baseScore * this.combo;
     this.score += totalScore;
     this.ui.setScore(this.score);
+
+    // Coin reward — type-based payout (1 per grunt/scout, 3 per fighter/bomber,
+    // 5 per heavy, 10 per elite/commander, 50 per boss).  Falls back to 1 coin
+    // for unknown types so no kill goes unrewarded.
+    var coinReward = COINS_PER_TYPE[enemy.type] != null ? COINS_PER_TYPE[enemy.type] : 1;
+    this.coins += coinReward;
+    if (typeof this.player.addCoins === 'function') {
+      this.player.addCoins(coinReward);
+    }
+    this.ui.setCoins(this.coins);
 
     // Combo increment
     this.combo++;

@@ -7,6 +7,7 @@
 
   function UI() {
     this.elScore   = document.getElementById('score');
+    this.elCoins   = document.getElementById('coins');
     this.elWave    = document.getElementById('wave');
     this.elLives   = document.getElementById('lives');
     this.elCombo   = document.getElementById('combo-bar');
@@ -38,6 +39,11 @@
   UI.prototype.setScore = function (v) {
     this._score = Math.max(0, Math.floor(v));
     if (this.elScore) this.elScore.textContent = String(this._score).padStart(6, '0');
+  };
+
+  UI.prototype.setCoins = function (v) {
+    this._coins = Math.max(0, Math.floor(v));
+    if (this.elCoins) this.elCoins.textContent = String(this._coins);
   };
 
   UI.prototype.addScore = function (v) {
