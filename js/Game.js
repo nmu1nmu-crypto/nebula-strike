@@ -123,14 +123,23 @@
 
     // Start render loop
     this._lastTime = performance.now();
-    this._loop();
+    this._startLoop();
   }
 
   // ── Main loop ──────────────────────────────────────────────────────────
+  Game.prototype._loopBound = null;
+
+  Game.prototype._startLoop = function () {
+    if (this._loopBound) return;
+    this._loopBound = this._loop.bind(this);
+    this._lastTime = performance.now();
+    requestAnimationFrame(this._loopBound);
+  };
+
   Game.prototype._loop = function () {
-    requestAnimationFrame(this._loop.bind(this));
+    requestAnimationFrame(this._loopBound);
     var now = performance.now();
-    var dt  = Math.min(0.033, (now - this._lastTime) / 1000); // cap at 30fps min
+    var dt  = Math.min(0.1, (now - this._lastTime) / 1000); // cap at 100ms max to avoid huge jumps
     this._lastTime = now;
 
     // Apply slow-mo time scale from Effects
@@ -164,7 +173,7 @@
         break;
 
       case STATE.WAVE_TRANS:
-        this.waveTransitionTimer -= dt;
+        this.waveTransitionTimer -= realDt;
         this.player.update(dt, { left: false, right: false, up: false, down: false, fire: false, special: false }, this.bullets);
         this.particles.update(dt);
         this.bullets.update(dt);

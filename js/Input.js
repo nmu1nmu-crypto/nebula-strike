@@ -476,7 +476,14 @@
         }
 
         _onTouchStart(e) {
-            // Always preventDefault to stop scroll/zoom/callout gestures.
+            // Don't intercept touches on UI elements (buttons, screens).
+            // On iOS, preventDefault() on touchstart cancels the click event,
+            // which means the START button, sound toggle, etc. won't fire.
+            if (e.target && (e.target.closest('.screen') || e.target.tagName === 'BUTTON' || e.target.closest('button'))) {
+                return;
+            }
+
+            // For game-area touches, preventDefault to stop scroll/zoom/callout gestures.
             e.preventDefault();
 
             for (let i = 0; i < e.changedTouches.length; i++) {
@@ -524,6 +531,9 @@
         }
 
         _onTouchMove(e) {
+            if (e.target && (e.target.closest('.screen') || e.target.tagName === 'BUTTON' || e.target.closest('button'))) {
+                return;
+            }
             e.preventDefault();
 
             for (let i = 0; i < e.changedTouches.length; i++) {
@@ -547,6 +557,9 @@
         }
 
         _onTouchEnd(e) {
+            if (e.target && (e.target.closest('.screen') || e.target.tagName === 'BUTTON' || e.target.closest('button'))) {
+                return;
+            }
             e.preventDefault();
 
             for (let i = 0; i < e.changedTouches.length; i++) {
